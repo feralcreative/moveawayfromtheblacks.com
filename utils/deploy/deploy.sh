@@ -16,7 +16,7 @@ DOMAIN="moveawayfromtheblacks.com"
 # Allowlist of files to publish (relative to project root). An allowlist — not
 # an exclude list — guarantees secrets (.env) and tooling (utils/, .git) can
 # never reach the public web root.
-DEPLOY_FILES=( index.html .htaccess )
+DEPLOY_FILES=( index.html .htaccess whistle.json )
 
 # Parse flags
 DRY_RUN=""; FORCE=""

@@ -239,3 +239,6 @@ Icon?
 **/*.syncthing*
 **/*.sync-conflict*
 _reference
+.vscode
+**/utils/*
+.htaccess
