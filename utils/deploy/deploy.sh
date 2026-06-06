@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# moveawayfromtheblacks.com — Deploy via rsync over SSH, then purge Cloudflare cache.
+# moveawayfromtheblacks.com — Deploy via SFTP, then purge Cloudflare cache.
 # Don't run directly — use prod.sh, which sets DEPLOY_ENV.
+#
+# Transport note: this NAS is reached over SFTP (same as the VSCode SFTP
+# extension). We deliberately do NOT use rsync — macOS ships Apple's openrsync,
+# which fails against the Synology rsync with "io_read / unexpected end of file".
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -8,6 +12,11 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$SCRIPT_DIR/deploy-utils.sh"
 
 DOMAIN="moveawayfromtheblacks.com"
+
+# Allowlist of files to publish (relative to project root). An allowlist — not
+# an exclude list — guarantees secrets (.env) and tooling (utils/, .git) can
+# never reach the public web root.
+DEPLOY_FILES=( index.html .htaccess )
 
 # Parse flags
 DRY_RUN=""; FORCE=""
@@ -19,10 +28,9 @@ for arg in "$@"; do
       cat <<EOF
 Usage: $(basename "$0") [--dry-run] [--force]
 
-Deploys ${DOMAIN} to the NAS via rsync over SSH, then purges the
-Cloudflare cache for the zone.
+Deploys ${DOMAIN} to the NAS via SFTP, then purges the Cloudflare cache.
 
-  --dry-run, -n   Show what would be transferred without uploading.
+  --dry-run, -n   Show what would be uploaded without transferring anything.
   --force,   -f   Bypass prod safety gates (does NOT bypass confirmation).
 
 Called via:
@@ -36,11 +44,11 @@ done
 [ -n "${DEPLOY_ENV:-}" ] || { err "DEPLOY_ENV not set — run prod.sh"; exit 1; }
 [ "$DEPLOY_ENV" = "prod" ] || { err "Invalid DEPLOY_ENV: $DEPLOY_ENV"; exit 1; }
 
-require_cmd rsync "Install with 'brew install rsync'."
-require_cmd ssh   "OpenSSH client is required."
-require_cmd jq    "Install with 'brew install jq'."
-require_cmd git   "Git is required."
-require_cmd curl  "curl is required for the Cloudflare purge."
+require_cmd sftp "OpenSSH SFTP client is required."
+require_cmd ssh  "OpenSSH client is required."
+require_cmd jq   "Install with 'brew install jq'."
+require_cmd git  "Git is required."
+require_cmd curl "curl is required for the Cloudflare purge."
 
 cd "$PROJECT_ROOT"
 DEPLOY_START=$(date +%s)
@@ -71,7 +79,13 @@ ENV_LABEL="PRODUCTION"; ENV_COLOR="$RED"
 echo ""
 echo -e "${CYAN}═══ ${DOMAIN} — ${ENV_COLOR}${ENV_LABEL}${NC}${CYAN} deploy ═══${NC}"
 echo -e "  Target : ${BOLD}${SSH_USER}@${HOST}:${REMOTE_PATH}${NC}"
-[ -n "$DRY_RUN" ] && warn "DRY RUN — no files will be uploaded, no cache purged"
+echo -e "  Files  : ${BOLD}${DEPLOY_FILES[*]}${NC}"
+[ -n "$DRY_RUN" ] && warn "DRY RUN — nothing will be uploaded, no cache purged"
+
+# Verify every allowlisted file exists locally before we start
+for f in "${DEPLOY_FILES[@]}"; do
+  [ -f "$PROJECT_ROOT/$f" ] || { err "Missing local file: $f"; exit 1; }
+done
 
 # Production safety gates
 GIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -96,26 +110,50 @@ if [ -z "$DRY_RUN" ]; then
   [ "$CONFIRM" = "yes" ] || { err "Aborted."; exit 1; }
 fi
 
-# Build rsync exclude list from ignore.json
-IGNORE_JSON="$SCRIPT_DIR/ignore.json"
-[ -f "$IGNORE_JSON" ] || { err "Missing $IGNORE_JSON"; exit 1; }
+# SFTP connection options (lean on ssh-agent; honor optional SSH_KEY_PATH)
+SFTP_OPTS=(-P "$SSH_PORT" -o ConnectTimeout=15)
+[ -n "${SSH_KEY_PATH:-}" ] && [ -f "$SSH_KEY_PATH" ] && SFTP_OPTS+=(-i "$SSH_KEY_PATH")
+SFTP_TARGET="${SSH_USER}@${HOST}"
 
-EXCLUDE_FILE=$(mktemp -t rsync-excludes.XXXXXX)
-cleanup() { rm -f "$EXCLUDE_FILE"; }
+# Build the SFTP batch: create the remote path (each component, tolerant of
+# "already exists"), then upload each file. '-' prefix ignores per-command
+# errors; 'put' is left un-prefixed so a failed upload fails the deploy.
+BATCH_FILE=$(mktemp -t sftp-batch.XXXXXX)
+cleanup() { rm -f "$BATCH_FILE"; }
 trap cleanup EXIT
 
-jq -r '.patterns[]' "$IGNORE_JSON" > "$EXCLUDE_FILE"
+{
+  rel=""
+  IFS='/' read -ra PARTS <<< "${REMOTE_PATH#/}"
+  for comp in "${PARTS[@]}"; do
+    rel="${rel}/${comp}"
+    echo "-mkdir ${rel}"
+  done
+  echo "cd ${REMOTE_PATH}"
+  for f in "${DEPLOY_FILES[@]}"; do
+    echo "put \"${PROJECT_ROOT}/${f}\" \"${f}\""
+  done
+  echo "ls -la"
+  echo "bye"
+} > "$BATCH_FILE"
 
-# Rsync. NOTE: no --delete — remotePath is /web/, which may be a shared Web
-# Station root; deleting "extraneous" files there could wipe other sites.
-info "Syncing files over SSH..."
+info "Uploading ${#DEPLOY_FILES[@]} file(s) over SFTP..."
 UPLOAD_START=$(date +%s)
-RSYNC_ARGS=(-avz --stats --human-readable --exclude-from="$EXCLUDE_FILE" -e "ssh -p ${SSH_PORT}")
-[ -n "$DRY_RUN" ] && RSYNC_ARGS+=(--dry-run)
 
-rsync "${RSYNC_ARGS[@]}" "${PROJECT_ROOT}/" "${SSH_USER}@${HOST}:${REMOTE_PATH}/"
-UPLOAD_TIME=$(($(date +%s) - UPLOAD_START))
-ok "Files synced in $(format_time $UPLOAD_TIME)"
+if [ -n "$DRY_RUN" ]; then
+  warn "DRY RUN — would run the following SFTP batch:"
+  sed 's/^/    /' "$BATCH_FILE"
+  UPLOAD_TIME=0
+else
+  if sftp "${SFTP_OPTS[@]}" -b "$BATCH_FILE" "$SFTP_TARGET"; then
+    UPLOAD_TIME=$(($(date +%s) - UPLOAD_START))
+    ok "Files uploaded in $(format_time $UPLOAD_TIME)"
+  else
+    err "SFTP upload failed. Check the host/path in .vscode/sftp.json and that"
+    err "your SSH key is loaded (ssh-add -l)."
+    exit 1
+  fi
+fi
 
 # Cloudflare cache purge (non-fatal)
 purge_cloudflare_cache() {
