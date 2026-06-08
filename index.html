@@ -46,68 +46,64 @@
       margin: -3em auto;
     }
 
-    .whistle-link {
+    p,
+    .p1,
+    .p2 {
       font-size: clamp(3rem, 5vw, 10rem);
       color: #9EBDFC;
       text-decoration: none;
-      text-underline-offset: 0.2em;
-    }
-
-    .whistle-link:hover,
-    .whistle-link:focus-visible {
-      color: #000000;
     }
   </style>
 </head>
 <body>
-  <a class="whistle-link" href="https://conservativemove.com/">MoveAwayFromTheBlacks.com</a>
+  <p class="p1">Blow the dog whistle!</p>
 
   <a class="whistle" href="https://conservativemove.com/" aria-label="Blow the dog whistle, decode the message">
     <div id="whistle" aria-hidden="true"></div>
   </a>
 
-  <a class="whistle-link" href="https://conservativemove.com/">Blow the dog whistle!<br>Decode the message!</a>
+  <p class="p2">Decode the message!</a>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie_svg.min.js" integrity="sha384-cL9I2N9Ghac8vBM+D6Nqt0cIsNCZ1Ol07LAqQORV0I2BXfdOd7KjAsa806gOy5pF" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <script>
-    // The whistle sits paused on a settled frame. Clicking it (or the link)
-    // "blows" it — plays the animation through — then sends you on your way.
-    var TARGET = 'https://conservativemove.com/';
-    var REST_FRAME = 10;   // home pose; the click animation starts here and returns here
-    var END_FRAME = 28;    // click plays REST_FRAME -> END_FRAME, then resets to REST_FRAME
-    var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie_svg.min.js" integrity="sha384-cL9I2N9Ghac8vBM+D6Nqt0cIsNCZ1Ol07LAqQORV0I2BXfdOd7KjAsa806gOy5pF" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script>
+      // The whistle sits paused on a settled frame. Clicking it (or the link)
+      // "blows" it — plays the animation through — then sends you on your way.
+      var TARGET = 'https://conservativemove.com/';
+      var REST_FRAME = 10;   // home pose; the click animation starts here and returns here
+      var END_FRAME = 28;    // click plays REST_FRAME -> END_FRAME, then resets to REST_FRAME
+      var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    var anim = lottie.loadAnimation({
-      container: document.getElementById('whistle'),
-      renderer: 'svg',
-      loop: false,
-      autoplay: false,
-      path: 'whistle.json'
-    });
-
-    // Wire the click behavior only once the animation is ready. If it never
-    // loads, the anchors fall back to plain navigation on their own.
-    anim.addEventListener('DOMLoaded', function () {
-      anim.goToAndStop(REST_FRAME, true);
-
-      var blown = false;
-      function blow(e) {
-        e.preventDefault();
-        if (blown) return;
-        blown = true;
-        if (reduceMotion) { window.location.href = TARGET; return; }
-        anim.addEventListener('complete', function () {
-          anim.resetSegments(true);            // restore full range so the next call uses absolute frames
-          anim.goToAndStop(REST_FRAME, true);  // reset back to frame 10...
-          window.location.href = TARGET;       // ...then send them on
-        });
-        anim.playSegments([REST_FRAME, END_FRAME], true);
-      }
-
-      document.querySelectorAll('.whistle, .whistle-link').forEach(function (el) {
-        el.addEventListener('click', blow);
+      var anim = lottie.loadAnimation({
+        container: document.getElementById('whistle'),
+        renderer: 'svg',
+        loop: false,
+        autoplay: false,
+        path: 'whistle.json'
       });
-    });
-  </script>
+
+      // Wire the click behavior only once the animation is ready. If it never
+      // loads, the anchors fall back to plain navigation on their own.
+      anim.addEventListener('DOMLoaded', function () {
+        anim.goToAndStop(REST_FRAME, true);
+
+        var blown = false;
+        function blow(e) {
+          e.preventDefault();
+          if (blown) return;
+          blown = true;
+          if (reduceMotion) { window.location.href = TARGET; return; }
+          anim.addEventListener('complete', function () {
+            anim.resetSegments(true);            // restore full range so the next call uses absolute frames
+            anim.goToAndStop(REST_FRAME, true);  // reset back to frame 10...
+            window.location.href = TARGET;       // ...then send them on
+          });
+          anim.playSegments([REST_FRAME, END_FRAME], true);
+        }
+
+        document.querySelectorAll('.whistle, .whistle-link').forEach(function (el) {
+          el.addEventListener('click', blow);
+        });
+      });
+    </script>
 </body>
 </html>
